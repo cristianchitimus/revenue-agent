@@ -1,0 +1,258 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ============================================
+// CORE - User & Config
+// ============================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  passwordHash  String?
+  role          String    @default("admin")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model EngineConfig {
+  id        String   @id @default(cuid())
+  engine    String   @unique // "content" | "leadgen" | "freelance"
+  enabled   Boolean  @default(true)
+  schedule  String   @default("0 6 * * *") // cron expression
+  config    Json     @default("{}")
+  lastRunAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model RunLog {
+  id        String   @id @default(cuid())
+  engine    String
+  status    String   // "running" | "success" | "error"
+  message   String?
+  metadata  Json     @default("{}")
+  startedAt DateTime @default(now())
+  endedAt   DateTime?
+  duration  Int?
+}
+
+// ============================================
+// ENGINE 1 - Content Engine
+// ============================================
+
+model Niche {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  slug        String    @unique
+  description String?
+  keywords    String[]
+  siteUrl     String?
+  enabled     Boolean   @default(true)
+  articles    Article[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Article {
+  id              String   @id @default(cuid())
+  nicheId         String
+  niche           Niche    @relation(fields: [nicheId], references: [id])
+  title           String
+  slug            String
+  keyword         String
+  content         String
+  metaDescription String?
+  status          String   @default("draft")
+  publishedUrl    String?
+  wordCount       Int      @default(0)
+  impressions     Int      @default(0)
+  clicks          Int      @default(0)
+  position        Float?
+  affiliateClicks Int      @default(0)
+  estimatedRevenue Float   @default(0)
+  publishedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  affiliateLinks  ArticleAffiliateLink[]
+
+  @@unique([nicheId, slug])
+}
+
+model AffiliateProgram {
+  id            String   @id @default(cuid())
+  name          String
+  network       String
+  affiliateId   String
+  commissionRate Float?
+  linkTemplate  String
+  enabled       Boolean  @default(true)
+  links         ArticleAffiliateLink[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model ArticleAffiliateLink {
+  id          String           @id @default(cuid())
+  articleId   String
+  article     Article          @relation(fields: [articleId], references: [id])
+  programId   String
+  program     AffiliateProgram @relation(fields: [programId], references: [id])
+  productName String
+  productUrl  String
+  clicks      Int              @default(0)
+  conversions Int              @default(0)
+  revenue     Float            @default(0)
+  createdAt   DateTime         @default(now())
+}
+
+// ============================================
+// ENGINE 2 - Lead Gen Engine
+// ============================================
+
+model LeadSource {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  type          String
+  baseUrl       String
+  scrapeConfig  Json     @default("{}")
+  enabled       Boolean  @default(true)
+  lastScrapedAt DateTime?
+  leads         Lead[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Lead {
+  id            String     @id @default(cuid())
+  sourceId      String
+  source        LeadSource @relation(fields: [sourceId], references: [id])
+  companyName   String
+  companyCui    String?
+  industry      String?
+  employeeCount String?
+  website       String?
+  contactName   String?
+  contactEmail  String?
+  contactPhone  String?
+  contactRole   String?
+  aiScore       Float?
+  aiSummary     String?
+  aiTags        String[]
+  status        String     @default("new")
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@unique([companyName, companyCui])
+}
+
+model LeadClient {
+  id                   String   @id @default(cuid())
+  name                 String
+  email                String   @unique
+  company              String?
+  stripeCustomerId     String?  @unique
+  stripeSubscriptionId String?  @unique
+  plan                 String   @default("basic")
+  industriesFilter     String[]
+  regionsFilter        String[]
+  maxLeadsPerDay       Int      @default(50)
+  deliveryMethod       String   @default("email")
+  apiKey               String?  @unique
+  active               Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+// ============================================
+// ENGINE 3 - Freelance Agent
+// ============================================
+
+model JobPlatform {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  type          String
+  feedUrl       String?
+  apiConfig     Json     @default("{}")
+  enabled       Boolean  @default(true)
+  lastCheckedAt DateTime?
+  jobs          Job[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model SkillProfile {
+  id            String   @id @default(cuid())
+  name          String
+  skills        String[]
+  minBudget     Float    @default(20)
+  maxComplexity String   @default("medium")
+  bio           String?
+  portfolio     String[]
+  enabled       Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Job {
+  id            String      @id @default(cuid())
+  platformId    String
+  platform      JobPlatform @relation(fields: [platformId], references: [id])
+  externalId    String
+  title         String
+  description   String
+  budget        Float?
+  budgetType    String?
+  clientName    String?
+  clientRating  Float?
+  skills        String[]
+  url           String
+  aiScore       Float?
+  aiComplexity  String?
+  aiCategory    String?
+  aiNotes       String?
+  status        String      @default("new")
+  proposal      Proposal?
+  postedAt      DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@unique([platformId, externalId])
+}
+
+model Proposal {
+  id             String   @id @default(cuid())
+  jobId          String   @unique
+  job            Job      @relation(fields: [jobId], references: [id])
+  content        String
+  bidAmount      Float
+  estimatedHours Float?
+  status         String   @default("draft")
+  sentAt         DateTime?
+  respondedAt    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+// ============================================
+// Revenue Tracking (cross-engine)
+// ============================================
+
+model Revenue {
+  id          String   @id @default(cuid())
+  engine      String
+  source      String
+  amount      Float
+  currency    String   @default("EUR")
+  description String?
+  metadata    Json     @default("{}")
+  date        DateTime @default(now())
+  createdAt   DateTime @default(now())
+}
