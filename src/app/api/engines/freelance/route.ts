@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
+import { scrapeUpworkJobs } from "@/lib/scrapers/upwork";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -162,8 +163,26 @@ export async function POST() {
 
     let jobsScored = 0;
     let proposalsGenerated = 0;
+    let jobsScraped = 0;
 
-    // Score unscored jobs
+    // Step 1: Scrape new jobs from platforms
+    for (const platform of platforms) {
+      try {
+        if (platform.name === "Upwork") {
+          const newJobs = await scrapeUpworkJobs(platform.id);
+          jobsScraped += newJobs;
+          await db.jobPlatform.update({
+            where: { id: platform.id },
+            data: { lastCheckedAt: new Date() },
+          });
+        }
+        // Future: add Freelancer, PeoplePerHour scrapers here
+      } catch (err) {
+        console.error(`Failed to scrape ${platform.name}:`, err);
+      }
+    }
+
+    // Step 2: Score unscored jobs with AI
     const unscoredJobs = await db.job.findMany({
       where: { status: "new", aiScore: null },
       take: 20,
@@ -244,13 +263,13 @@ export async function POST() {
       where: { id: runLog.id },
       data: {
         status: "success",
-        message: `Scored ${jobsScored} jobs, generated ${proposalsGenerated} proposals`,
+        message: `Scraped ${jobsScraped} jobs, scored ${jobsScored}, generated ${proposalsGenerated} proposals`,
         endedAt: new Date(),
         duration: Date.now() - startTime,
       },
     });
 
-    return NextResponse.json({ success: true, jobsScored, proposalsGenerated });
+    return NextResponse.json({ success: true, jobsScraped, jobsScored, proposalsGenerated });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     await db.runLog.update({
