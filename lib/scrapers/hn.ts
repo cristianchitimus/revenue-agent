@@ -38,11 +38,13 @@ async function findLatestWhoIsHiring(): Promise<HnStoryHit | null> {
   return hit || null;
 }
 
-// Fetch all top-level comments in that thread
+// Fetch top-level comments in that thread (capped for serverless time budget)
 async function fetchComments(storyId: string): Promise<HnCommentHit[]> {
   const all: HnCommentHit[] = [];
   let page = 0;
-  while (page < 10) {
+  // Cap: 2 pages × 100 = 200 comments max. Enough for top matches on
+  // the Hobby plan's 60s function limit.
+  while (page < 2) {
     const res = await fetchJson<HnResponse<HnCommentHit>>(
       `https://hn.algolia.com/api/v1/search?tags=comment,story_${storyId}&hitsPerPage=100&page=${page}`
     );

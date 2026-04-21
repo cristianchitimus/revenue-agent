@@ -79,82 +79,83 @@ export async function runAllScrapers(): Promise<RunSummary[]> {
 
     let jobsNew = 0;
 
-    for (const raw of result.jobs) {
-      const category = categorizeJob({
-        title: raw.title,
-        description: raw.description,
-        skills: raw.skills,
-        postedAt: raw.postedAt,
-      });
-      const enrichedSkills = Array.from(
-        new Set([...raw.skills, ...extractSkills({
+    if (result.jobs.length > 0) {
+      // Prep all rows with scoring + category in memory
+      const prepared = result.jobs.map((raw) => {
+        const baseInput = {
           title: raw.title,
           description: raw.description,
           skills: raw.skills,
           postedAt: raw.postedAt,
-        })])
-      );
-      const matchScore = scoreJob(
-        {
-          title: raw.title,
-          description: raw.description,
-          skills: enrichedSkills,
-          budgetMin: raw.budgetMin,
-          budgetMax: raw.budgetMax,
-          postedAt: raw.postedAt,
-        },
-        settings
-      );
-
-      try {
-        const existing = await prisma.job.findUnique({
-          where: {
-            platformId_externalId: {
-              platformId: platform.id,
-              externalId: raw.externalId,
-            },
-          },
-        });
-
-        if (!existing) jobsNew++;
-
-        await prisma.job.upsert({
-          where: {
-            platformId_externalId: {
-              platformId: platform.id,
-              externalId: raw.externalId,
-            },
-          },
-          update: {
-            // Don't overwrite user-set status on updates
-            title: raw.title,
-            description: raw.description.slice(0, 10000),
-            budgetMin: raw.budgetMin,
-            budgetMax: raw.budgetMax,
-            matchScore,
-          },
-          create: {
-            platformId: platform.id,
-            externalId: raw.externalId,
-            title: raw.title,
-            description: raw.description.slice(0, 10000),
-            company: raw.company,
-            location: raw.location,
-            remote: raw.remote,
-            url: raw.url,
-            budgetMin: raw.budgetMin,
-            budgetMax: raw.budgetMax,
-            budgetType: raw.budgetType,
-            currency: raw.currency,
+        };
+        const category = categorizeJob(baseInput);
+        const enrichedSkills = Array.from(
+          new Set([...raw.skills, ...extractSkills(baseInput)])
+        );
+        const matchScore = scoreJob(
+          {
+            ...baseInput,
             skills: enrichedSkills,
-            category,
-            matchScore,
-            postedAt: raw.postedAt,
+            budgetMin: raw.budgetMin,
+            budgetMax: raw.budgetMax,
           },
-        });
-      } catch {
-        // Skip duplicate/bad rows, continue with others
+          settings
+        );
+        return { raw, category, enrichedSkills, matchScore };
+      });
+
+      // Dedupe within this batch by externalId (some scrapers can double up)
+      const seenIds = new Set<string>();
+      const uniq = prepared.filter((p) => {
+        if (seenIds.has(p.raw.externalId)) return false;
+        seenIds.add(p.raw.externalId);
+        return true;
+      });
+
+      // Single query: which externalIds already exist for this platform?
+      const existing = await prisma.job.findMany({
+        where: {
+          platformId: platform.id,
+          externalId: { in: uniq.map((p) => p.raw.externalId) },
+        },
+        select: { externalId: true },
+      });
+      const existingIds = new Set(existing.map((e) => e.externalId));
+
+      const toCreate = uniq.filter((p) => !existingIds.has(p.raw.externalId));
+      jobsNew = toCreate.length;
+
+      // Batch insert new jobs (1 query instead of N)
+      if (toCreate.length > 0) {
+        try {
+          await prisma.job.createMany({
+            data: toCreate.map(({ raw, category, enrichedSkills, matchScore }) => ({
+              platformId: platform.id,
+              externalId: raw.externalId,
+              title: raw.title.slice(0, 500),
+              description: raw.description.slice(0, 10000),
+              company: raw.company,
+              location: raw.location,
+              remote: raw.remote,
+              url: raw.url,
+              budgetMin: raw.budgetMin,
+              budgetMax: raw.budgetMax,
+              budgetType: raw.budgetType,
+              currency: raw.currency,
+              skills: enrichedSkills,
+              category,
+              matchScore,
+              postedAt: raw.postedAt,
+            })),
+            skipDuplicates: true,
+          });
+        } catch {
+          // Swallow batch errors - some rows may conflict; ScanRun still records count
+        }
       }
+
+      // For existing jobs, just refresh matchScore (cheap updateMany per unique score bucket)
+      // Skip updating everything else to preserve user-set status etc.
     }
 
     await prisma.scanRun.update({

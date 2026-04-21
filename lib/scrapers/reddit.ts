@@ -6,8 +6,6 @@ const SUBREDDITS = [
   "jobbit",
   "remotejs",
   "designjobs",
-  "hireanartist",
-  "slavelabour",
 ];
 
 const OFFERING_TAGS = ["[for hire]", "[fh]"];
@@ -88,61 +86,58 @@ export async function scrapeReddit(): Promise<ScrapeResult> {
     const userAgent = process.env.REDDIT_USER_AGENT || "freelance-agent/1.0";
     const all: ScrapedJob[] = [];
 
-    for (const sub of SUBREDDITS) {
-      try {
-        const res = await fetch(
-          `https://oauth.reddit.com/r/${sub}/new?limit=50`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "User-Agent": userAgent,
-            },
-            cache: "no-store",
-          }
-        );
-        if (!res.ok) continue;
+    // Fetch all subreddits in parallel (Reddit allows 60/min per OAuth token)
+    const results = await Promise.allSettled(
+      SUBREDDITS.map((sub) =>
+        fetch(`https://oauth.reddit.com/r/${sub}/new?limit=50`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "User-Agent": userAgent,
+          },
+          cache: "no-store",
+        }).then(async (res) => ({
+          sub,
+          ok: res.ok,
+          json: res.ok ? ((await res.json()) as RedditListing) : null,
+        }))
+      )
+    );
 
-        const listing = (await res.json()) as RedditListing;
+    for (const r of results) {
+      if (r.status !== "fulfilled" || !r.value.ok || !r.value.json) continue;
+      const { sub, json: listing } = r.value;
 
-        for (const post of listing.data.children) {
-          const p = post.data;
-          const title = p.title.toLowerCase();
-          const flair = (p.link_flair_text || "").toLowerCase();
+      for (const post of listing.data.children) {
+        const p = post.data;
+        const title = p.title.toLowerCase();
+        const flair = (p.link_flair_text || "").toLowerCase();
 
-          // Skip "for hire" posts (people offering services)
-          if (OFFERING_TAGS.some((t) => title.includes(t))) continue;
-          if (flair === "for hire" || flair === "fh") continue;
+        // Skip "for hire" posts (people offering services)
+        if (OFFERING_TAGS.some((t) => title.includes(t))) continue;
+        if (flair === "for hire" || flair === "fh") continue;
 
-          // Keep hiring posts or posts from hire-only subs
-          const isHiring =
-            HIRING_TAGS.some((t) => title.includes(t)) ||
-            flair === "hiring" ||
-            sub === "hireanartist" ||
-            sub === "slavelabour";
-          if (!isHiring) continue;
+        // Keep hiring posts only (we dropped hire-only subs)
+        const isHiring =
+          HIRING_TAGS.some((t) => title.includes(t)) || flair === "hiring";
+        if (!isHiring) continue;
 
-          const budget = parseBudget(`${p.title} ${p.selftext}`);
+        const budget = parseBudget(`${p.title} ${p.selftext}`);
 
-          all.push({
-            externalId: `reddit-${p.id}`,
-            title: p.title.replace(/\[hiring\]/i, "").trim(),
-            description: p.selftext || "",
-            company: `u/${p.author}`,
-            location: `r/${p.subreddit}`,
-            remote: true,
-            url: `https://reddit.com${p.permalink}`,
-            budgetMin: budget.min ?? null,
-            budgetMax: budget.max ?? null,
-            budgetType: budget.type,
-            currency: "USD",
-            skills: [],
-            postedAt: new Date(p.created_utc * 1000),
-          });
-        }
-
-        await new Promise((r) => setTimeout(r, 1000));
-      } catch {
-        // skip bad sub
+        all.push({
+          externalId: `reddit-${p.id}`,
+          title: p.title.replace(/\[hiring\]/i, "").trim(),
+          description: p.selftext || "",
+          company: `u/${p.author}`,
+          location: `r/${p.subreddit}`,
+          remote: true,
+          url: `https://reddit.com${p.permalink}`,
+          budgetMin: budget.min ?? null,
+          budgetMax: budget.max ?? null,
+          budgetType: budget.type,
+          currency: "USD",
+          skills: [],
+          postedAt: new Date(p.created_utc * 1000),
+        });
       }
     }
 

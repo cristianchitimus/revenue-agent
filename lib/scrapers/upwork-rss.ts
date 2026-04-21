@@ -12,13 +12,8 @@ import { fetchText, parseBudget, stripHtml } from "./types";
  */
 const QUERIES = [
   "nextjs",
-  "react",
-  "typescript",
-  "full+stack",
-  "supabase",
-  "ui+design",
+  "full+stack+developer",
   "landing+page",
-  "stripe+integration",
 ];
 
 interface RssItem {
@@ -40,14 +35,26 @@ export async function scrapeUpworkRss(): Promise<ScrapeResult> {
   const all: ScrapedJob[] = [];
   const errors: string[] = [];
 
-  for (const q of QUERIES) {
+  // Fetch all feeds in parallel to stay within function time budget
+  const fetchResults = await Promise.allSettled(
+    QUERIES.map((q) =>
+      fetchText(buildFeedUrl(q), {
+        headers: { Accept: "application/rss+xml, application/xml, text/xml" },
+      })
+    )
+  );
+
+  for (let i = 0; i < QUERIES.length; i++) {
+    const q = QUERIES[i];
+    const fr = fetchResults[i];
+    if (fr.status === "rejected") {
+      errors.push(
+        `${q}: ${fr.reason instanceof Error ? fr.reason.message : fr.reason}`
+      );
+      continue;
+    }
     try {
-      const xml = await fetchText(buildFeedUrl(q), {
-        headers: {
-          Accept: "application/rss+xml, application/xml, text/xml",
-        },
-      });
-      const json = parser.parse(xml);
+      const json = parser.parse(fr.value);
       const items: RssItem[] = Array.isArray(json?.rss?.channel?.item)
         ? json.rss.channel.item
         : json?.rss?.channel?.item
@@ -83,9 +90,6 @@ export async function scrapeUpworkRss(): Promise<ScrapeResult> {
           postedAt: item.pubDate ? new Date(item.pubDate) : new Date(),
         });
       }
-
-      // Polite delay between Upwork requests
-      await new Promise((r) => setTimeout(r, 2000));
     } catch (err) {
       errors.push(`${q}: ${err instanceof Error ? err.message : err}`);
     }
