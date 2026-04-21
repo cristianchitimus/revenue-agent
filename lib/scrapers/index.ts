@@ -6,9 +6,10 @@ import { scrapeRemotive } from "./remotive";
 import { scrapeHimalayas } from "./himalayas";
 import { scrapeHn } from "./hn";
 import { scrapeReddit } from "./reddit";
-import { scrapeUpworkRss } from "./upwork-rss";
 import type { ScrapeResult } from "./types";
 
+// Upwork RSS removed - endpoint returns 410 Gone as of 2024-2026.
+// Use Apify "Upwork Jobs Scraper" actor ($49/mo) for real Upwork data.
 const SCRAPERS = [
   scrapeRemoteOk,
   scrapeWwr,
@@ -16,7 +17,6 @@ const SCRAPERS = [
   scrapeHimalayas,
   scrapeHn,
   scrapeReddit,
-  scrapeUpworkRss,
 ];
 
 export interface RunSummary {

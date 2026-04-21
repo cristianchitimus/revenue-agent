@@ -4,12 +4,11 @@ const prisma = new PrismaClient();
 
 const PLATFORMS = [
   { slug: "remoteok", name: "Remote OK" },
-  { slug: "wwr", name: "We Work Remotely" },
+  { slug: "wwr", name: "We Work Remotely (Contract)" },
   { slug: "remotive", name: "Remotive" },
   { slug: "himalayas", name: "Himalayas" },
-  { slug: "hn", name: "Hacker News Who's Hiring" },
+  { slug: "hn", name: "HN Seeking Freelancer" },
   { slug: "reddit", name: "Reddit r/forhire" },
-  { slug: "upwork-rss", name: "Upwork (public RSS)" },
 ];
 
 async function main() {

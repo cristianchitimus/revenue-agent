@@ -1,13 +1,10 @@
 import type { ScrapedJob, ScrapeResult } from "./types";
 import { fetchText, stripHtml } from "./types";
 
-// WWR category feeds
+// WWR Contract category feed only (pay-per-job gigs, not full-time hires)
 const FEEDS = [
-  "https://weworkremotely.com/categories/remote-programming-jobs.rss",
-  "https://weworkremotely.com/categories/remote-design-jobs.rss",
-  "https://weworkremotely.com/categories/remote-full-stack-programming-jobs.rss",
-  "https://weworkremotely.com/categories/remote-front-end-programming-jobs.rss",
-  "https://weworkremotely.com/categories/remote-back-end-programming-jobs.rss",
+  "https://weworkremotely.com/categories/remote-contract-programming-jobs.rss",
+  "https://weworkremotely.com/categories/remote-contract-design-jobs.rss",
 ];
 
 // Simple regex-based RSS parser - avoids XML entity-limit issues that the

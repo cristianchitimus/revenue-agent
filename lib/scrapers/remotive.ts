@@ -34,6 +34,10 @@ export async function scrapeRemotive(): Promise<ScrapeResult> {
       );
 
       for (const j of data.jobs) {
+        // Pay-per-job only: skip full_time / part_time / internship
+        const jobType = (j.job_type || "").toLowerCase();
+        if (!["contract", "freelance"].includes(jobType)) continue;
+
         const budget = parseBudget(j.salary || "");
 
         all.push({

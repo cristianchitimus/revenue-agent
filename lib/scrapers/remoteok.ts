@@ -28,6 +28,30 @@ export async function scrapeRemoteOk(): Promise<ScrapeResult> {
 
     const jobs: ScrapedJob[] = items
       .filter((i) => i.id && i.position)
+      // Pay-per-job filter: require tag or title to signal contract/freelance/gig
+      .filter((i) => {
+        const tags = (i.tags || []).map((t) => t.toLowerCase());
+        const title = (i.position || "").toLowerCase();
+        const desc = (i.description || "").toLowerCase();
+        const CONTRACT_SIGNALS = [
+          "contract",
+          "freelance",
+          "freelancer",
+          "part-time",
+          "part time",
+          "gig",
+          "hourly",
+        ];
+        const hasContractTag = tags.some((t) =>
+          CONTRACT_SIGNALS.includes(t)
+        );
+        const hasContractInTitle = CONTRACT_SIGNALS.some((s) =>
+          title.includes(s)
+        );
+        const hasContractInDesc =
+          /\b(contract|freelance|freelancer|part-?time|gig)\b/i.test(desc);
+        return hasContractTag || hasContractInTitle || hasContractInDesc;
+      })
       .map((i) => {
         const min = i.salary_min ? i.salary_min * 100 : null; // to cents
         const max = i.salary_max ? i.salary_max * 100 : null;

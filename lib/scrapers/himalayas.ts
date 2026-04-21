@@ -13,6 +13,7 @@ interface HimalayasJob {
   excerpt?: string;
   categories?: string[];
   seniority?: string[];
+  employmentTypes?: string[];
   minSalary?: number;
   maxSalary?: number;
   currency?: string;
@@ -20,6 +21,16 @@ interface HimalayasJob {
 
 interface HimalayasResponse {
   jobs: HimalayasJob[];
+}
+
+// Check if job is pay-per-job (contract/freelance) by any available signal
+function isPayPerJob(j: HimalayasJob): boolean {
+  const types = (j.employmentTypes || []).map((t) => t.toLowerCase());
+  if (types.some((t) => /contract|freelance|temporary|part/.test(t))) {
+    return true;
+  }
+  const text = `${j.title} ${j.excerpt || ""} ${j.description || ""}`.toLowerCase();
+  return /\b(contract|freelance|freelancer|contractor|gig)\b/.test(text);
 }
 
 export async function scrapeHimalayas(): Promise<ScrapeResult> {
@@ -32,6 +43,7 @@ export async function scrapeHimalayas(): Promise<ScrapeResult> {
 
     const jobs: ScrapedJob[] = (data.jobs || [])
       .filter((j) => j.guid && j.title)
+      .filter(isPayPerJob)
       .map((j) => ({
         externalId: j.guid,
         title: j.title,

@@ -25,15 +25,19 @@ interface HnResponse<T> {
   hits: T[];
 }
 
-// Find the most recent "Ask HN: Who is hiring?" thread
-async function findLatestWhoIsHiring(): Promise<HnStoryHit | null> {
+// Find the most recent "Ask HN: Freelancer? Seeking Freelancer?" thread.
+// This is HN's MONTHLY pay-per-job thread. Structure:
+// - Top-level "SEEKING WORK" comments = freelancers offering services (skip)
+// - Top-level "SEEKING FREELANCER" comments = clients offering gigs (keep)
+async function findLatestSeekingFreelancer(): Promise<HnStoryHit | null> {
   const res = await fetchJson<HnResponse<HnStoryHit>>(
-    "https://hn.algolia.com/api/v1/search?query=Ask+HN+Who+is+hiring&tags=story&hitsPerPage=5"
+    "https://hn.algolia.com/api/v1/search?query=Ask+HN+Freelancer+Seeking&tags=story&hitsPerPage=10"
   );
   const hit = res.hits
-    .filter((h) =>
-      h.title?.toLowerCase().includes("ask hn: who is hiring")
-    )
+    .filter((h) => {
+      const t = h.title?.toLowerCase() || "";
+      return t.includes("freelancer") && t.includes("seeking");
+    })
     .sort((a, b) => b.created_at_i - a.created_at_i)[0];
   return hit || null;
 }
@@ -71,12 +75,12 @@ function extractTitle(text: string): string {
 
 export async function scrapeHn(): Promise<ScrapeResult> {
   try {
-    const thread = await findLatestWhoIsHiring();
+    const thread = await findLatestSeekingFreelancer();
     if (!thread) {
       return {
         platformSlug: "hn",
         jobs: [],
-        error: "No Who-is-hiring thread found",
+        error: "No 'Ask HN: Freelancer? Seeking Freelancer?' thread found",
       };
     }
 
@@ -86,6 +90,16 @@ export async function scrapeHn(): Promise<ScrapeResult> {
       .filter((c) => c.comment_text && c.comment_text.length > 80)
       // Only top-level comments (parent = story)
       .filter((c) => c.parent_id === Number(thread.objectID))
+      // Only SEEKING FREELANCER posts (clients hiring), NOT SEEKING WORK (freelancers offering)
+      .filter((c) => {
+        const t = (c.comment_text || "").toLowerCase();
+        return (
+          t.includes("seeking freelancer") ||
+          t.includes("seeking freelancers") ||
+          // Older format: sometimes written as just SEEKING:
+          (t.includes("seeking:") && !t.includes("seeking work"))
+        );
+      })
       .map((c) => {
         const text = stripHtml(c.comment_text || "");
         const url =
