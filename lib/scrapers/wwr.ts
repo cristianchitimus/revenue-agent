@@ -3,9 +3,9 @@ import { fetchText, stripHtml } from "./types";
 
 // WWR Contract category feed only (pay-per-job gigs, not full-time hires)
 const FEEDS = [
-  "https://weworkremotely.com/categories/remote-contract-programming-jobs.rss",
-  "https://weworkremotely.com/categories/remote-contract-design-jobs.rss",
-];
+// WWR master feed - contract category subfeeds return 503.
+// We fetch the full feed and filter to contract/freelance posts by title/description.
+const FEEDS = ["https://weworkremotely.com/remote-jobs.rss"];
 
 // Simple regex-based RSS parser - avoids XML entity-limit issues that the
 // fast-xml-parser throws on large WWR feeds (1000+ entities).
@@ -101,6 +101,14 @@ export async function scrapeWwr(): Promise<ScrapeResult> {
         const company = titleParts.length > 1 ? titleParts[0].trim() : null;
         const position =
           titleParts.length > 1 ? titleParts.slice(1).join(":").trim() : item.title;
+
+        // Pay-per-job filter: keep only contract/freelance/part-time
+        const fullText = `${position} ${item.description} ${item.categories.join(" ")}`.toLowerCase();
+        const isPayPerJob =
+          /\b(contract|freelance|freelancer|contractor|part[-\s]?time|hourly|gig)\b/.test(
+            fullText
+          );
+        if (!isPayPerJob) continue;
 
         all.push({
           externalId: item.guid,
