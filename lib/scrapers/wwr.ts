@@ -1,8 +1,6 @@
 import type { ScrapedJob, ScrapeResult } from "./types";
 import { fetchText, stripHtml } from "./types";
 
-// WWR Contract category feed only (pay-per-job gigs, not full-time hires)
-const FEEDS = [
 // WWR master feed - contract category subfeeds return 503.
 // We fetch the full feed and filter to contract/freelance posts by title/description.
 const FEEDS = ["https://weworkremotely.com/remote-jobs.rss"];
