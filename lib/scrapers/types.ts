@@ -63,18 +63,29 @@ export async function fetchText(
   return await res.text();
 }
 
-// Strip HTML tags from RSS/Atom content
+// Strip HTML tags + decode entities. Handles double-encoded content from RSS/CDATA.
 export function stripHtml(html: string): string {
   return html
-    .replace(/<script[^>]*>.*?<\/script>/gis, "")
-    .replace(/<style[^>]*>.*?<\/style>/gis, "")
-    .replace(/<[^>]+>/g, " ")
+    // Decode numeric entities first (&#60; &#x3C;)
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
+    // Decode named entities (can be double-encoded; run twice)
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    // Second pass for double-encoded content
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    // Remove HTML comments (Reddit uses <!-- SC_OFF --> markers)
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -87,19 +98,30 @@ export function parseBudget(s: string): {
 } {
   if (!s) return { type: "unknown" };
   const lower = s.toLowerCase();
-  const isHourly = /\/\s*(hr|hour|h)\b/.test(lower) || /hourly/.test(lower);
+  const isHourly = /\/\s*(hr|hour|h)\b/.test(lower) || /hourly/.test(lower) || /per\s+hour/.test(lower);
 
-  const numbers = [...s.matchAll(/\$?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]+)?k?)/gi)]
-    .map((m) => {
-      let n = m[1].replace(/,/g, "");
-      let mult = 1;
-      if (n.toLowerCase().endsWith("k")) {
-        mult = 1000;
-        n = n.slice(0, -1);
-      }
-      return Math.round(parseFloat(n) * mult * 100); // to cents
-    })
-    .filter((n) => n > 0 && n < 100_000_000);
+  // Strict currency matching: require $ € £ prefix OR "usd"/"eur"/"gbp" suffix
+  // This avoids false positives on random numbers in HTML/dates/phone numbers.
+  // Accepts: $500, $1k, $1,500, €500, 500 USD, 1.5k, $50/hr
+  const currencyRegex = /(?:[$€£]\s*([0-9]{1,3}(?:[,.][0-9]{3})*(?:\.[0-9]+)?k?)|([0-9]{1,4}(?:[,.][0-9]{3})*(?:\.[0-9]+)?k?)\s*(?:usd|eur|gbp|dollars?|euros?|pounds?)\b)/gi;
+
+  const numbers: number[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = currencyRegex.exec(s)) !== null) {
+    const raw = (match[1] || match[2] || "").replace(/,/g, "");
+    let mult = 1;
+    let n = raw;
+    if (n.toLowerCase().endsWith("k")) {
+      mult = 1000;
+      n = n.slice(0, -1);
+    }
+    const val = Math.round(parseFloat(n) * mult * 100); // to cents
+    // Filter: must be at least $10 (1000 cents) — anything less is noise
+    // Max cap: $1M per item (we're looking at gigs)
+    if (val >= 1000 && val < 100_000_000) {
+      numbers.push(val);
+    }
+  }
 
   if (numbers.length === 0) return { type: isHourly ? "hourly" : "unknown" };
   if (numbers.length === 1)

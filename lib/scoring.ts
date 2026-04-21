@@ -60,23 +60,28 @@ export function scoreJob(raw: RawJob, settings: Settings): number {
 
   let score = 0;
 
-  // Skill match (50 points)
+  // Skill match (50 points) - bumped per-hit weights since freelance posts
+  // often list 1-2 primary skills in description, not 5+
   const primary = settings.primarySkills.filter((s) =>
     text.includes(s.toLowerCase())
   ).length;
   const secondary = settings.secondarySkills.filter((s) =>
     text.includes(s.toLowerCase())
   ).length;
-  const skillScore = Math.min(50, primary * 8 + secondary * 3);
+  const skillScore = Math.min(50, primary * 12 + secondary * 5);
   score += skillScore;
 
   // Budget fit (20 points)
   if (raw.budgetMin != null) {
-    if (raw.budgetMin >= settings.minBudget) score += 20;
-    else if (raw.budgetMin >= settings.minBudget / 2) score += 10;
+    // Hourly rates: normalize against ~40h/wk typical gig size
+    const effectiveMin =
+      raw.budgetMin < 10000 ? raw.budgetMin * 40 : raw.budgetMin; // crude hourly detection
+    if (effectiveMin >= settings.minBudget) score += 20;
+    else if (effectiveMin >= settings.minBudget / 2) score += 12;
+    else score += 4;
   } else {
-    // Unknown budget - neutral, give 8
-    score += 8;
+    // Unknown budget on pay-per-job sources = common, don't penalize
+    score += 14;
   }
 
   // Category fit (15 points)
@@ -85,14 +90,16 @@ export function scoreJob(raw: RawJob, settings: Settings): number {
   else if (cat === "fullstack" || cat === "design") score += 12;
   else score += 0;
 
-  // Include keywords (10 points)
+  // Include keywords + freelance signal (10 points)
+  // Freelance/contract keywords add automatic boost since these are the gigs we want
+  const hasFreelanceSignal = /\b(freelance|contract|gig|per[- ]project|hourly rate)\b/i.test(text);
   if (settings.includeKeywords.length > 0) {
     const hits = settings.includeKeywords.filter((k) =>
       text.includes(k.toLowerCase())
     ).length;
-    score += Math.min(10, hits * 5);
+    score += Math.min(10, hits * 5 + (hasFreelanceSignal ? 3 : 0));
   } else {
-    score += 5; // neutral
+    score += hasFreelanceSignal ? 8 : 5;
   }
 
   // Freshness (5 points)
